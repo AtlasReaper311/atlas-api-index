@@ -1,0 +1,54 @@
+# atlas-api-index // Cloudflare Worker configuration
+#
+# Claims exactly the api root and its own /_meta. Both patterns are
+# more specific than atlas-notify's /* wildcard, and Cloudflare
+# resolves to the most specific matching route, so atlas-notify keeps
+# everything else it serves untouched.
+name = "atlas-api-index"
+main = "src/index.js"
+compatibility_date = "2026-06-01"
+workers_dev = false
+
+routes = [
+  { pattern = "api.atlas-systems.uk/", zone_id = "8ba6350a78c988447c111048b125f917" },
+  { pattern = "api.atlas-systems.uk/_meta", zone_id = "8ba6350a78c988447c111048b125f917" }
+]
+
+# Hourly, offset from the top of the hour so it never herds with
+# anything that fires at :00.
+[triggers]
+crons = ["7 * * * *"]
+
+[observability]
+enabled = true
+
+# Registry snapshot store: one key, 24 writes/day.
+# Create with:
+#   npx wrangler kv namespace create REGISTRY_KV
+# Then paste the returned id below.
+[[kv_namespaces]]
+binding = "REGISTRY_KV"
+id = "2f513e0863ad4bbba09228e699183268"
+
+[vars]
+# Account and zone ids are identifiers, not secrets; they appear in
+# every wrangler.toml in the estate.
+ACCOUNT_ID = "49e221b7e55a9e5c45b88d08efca5771"
+ZONE_ID = "8ba6350a78c988447c111048b125f917"
+PROBE_TIMEOUT_MS = "4000"
+# Set to route discovery events to a dedicated channel once
+# atlas-notify learns the class; empty means the generic alert path.
+NOTIFY_SIGNAL_CLASS = ""
+
+# atlas-notify over a Service Binding: Worker-to-Worker inside
+# Cloudflare's network, no public internet hop.
+[[services]]
+binding = "ATLAS_NOTIFY"
+service = "atlas-notify"
+
+# Secrets (never in this file, never in source):
+#   npx wrangler secret put CF_API_TOKEN   <- NEW narrow token, read-only:
+#       Account > Workers Scripts:Read, Zone > Workers Routes:Read
+#       (deploy tokens and this runtime token stay separate credentials)
+#   npx wrangler secret put NOTIFY_TOKEN
+# For local dev, copy .dev.vars.example to .dev.vars instead.

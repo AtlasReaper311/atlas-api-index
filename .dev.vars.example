@@ -1,0 +1,5 @@
+# Local dev secrets for `npx wrangler dev`. Copy to .dev.vars.
+CF_API_TOKEN=
+NOTIFY_TOKEN=
+# Dev has no service binding; the notify module falls back to this URL.
+NOTIFY_URL=https://api.atlas-systems.uk/notify
