@@ -46,6 +46,42 @@ NOTIFY_SIGNAL_CLASS = ""
 binding = "ATLAS_NOTIFY"
 service = "atlas-notify"
 
+[[services]]
+binding = "WORKER_ATLAS_BACKEND"
+service = "atlas-backend"
+
+[[services]]
+binding = "WORKER_ATLAS_VAULT"
+service = "atlas-vault"
+
+[[services]]
+binding = "WORKER_DEPLOY_WATCH"
+service = "deploy-watch"
+
+[[services]]
+binding = "WORKER_GITHUB_PULSE"
+service = "github-pulse"
+
+[[services]]
+binding = "WORKER_RAMONE_EDGE"
+service = "ramone-edge"
+
+[[services]]
+binding = "WORKER_RAMONE_TRIGGER"
+service = "ramone-trigger"
+
+[[services]]
+binding = "WORKER_SIMPLE_PROXY"
+service = "simple-proxy"
+
+[[services]]
+binding = "WORKER_SITE_PULSE"
+service = "site-pulse"
+
+[[services]]
+binding = "WORKER_SPECULAR_EDGE"
+service = "specular-edge"
+
 # Secrets (never in this file, never in source):
 #   npx wrangler secret put CF_API_TOKEN   <- NEW narrow token, read-only:
 #       Account > Workers Scripts:Read, Zone > Workers Routes:Read

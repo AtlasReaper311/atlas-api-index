@@ -10,6 +10,7 @@
  */
 
 import { discoverWorkers } from "./discover.js";
+import { META } from "./meta.js";
 import { probeMeta } from "./probe.js";
 
 export const KV_KEY = "api-index:registry:v1";
@@ -17,11 +18,11 @@ const KV_TTL_SECONDS = 4500;
 
 /** Discover, probe, and assemble the registry document. */
 export async function buildRegistry(env) {
-  const discovered = await discoverWorkers(env);
+  const { workers: discovered, warnings } = await discoverWorkers(env);
   const timeoutMs = Number(env.PROBE_TIMEOUT_MS || "4000");
 
   const probes = await Promise.all(
-    discovered.map((worker) => probeMeta(worker.probe_url, timeoutMs)),
+    discovered.map((worker) => probeMeta(worker, env, timeoutMs, META)),
   );
 
   const workers = discovered
@@ -43,6 +44,7 @@ export async function buildRegistry(env) {
       documented: workers.filter((w) => w.documented).length,
       undocumented: workers.filter((w) => !w.documented).length,
     },
+    discovery_warnings: warnings,
     workers,
   };
 }

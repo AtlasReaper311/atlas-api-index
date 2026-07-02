@@ -15,6 +15,18 @@
  */
 
 const API = "https://api.cloudflare.com/client/v4";
+const SERVICE_BINDINGS = {
+  "atlas-backend": "WORKER_ATLAS_BACKEND",
+  "atlas-notify": "ATLAS_NOTIFY",
+  "atlas-vault": "WORKER_ATLAS_VAULT",
+  "deploy-watch": "WORKER_DEPLOY_WATCH",
+  "github-pulse": "WORKER_GITHUB_PULSE",
+  "ramone-edge": "WORKER_RAMONE_EDGE",
+  "ramone-trigger": "WORKER_RAMONE_TRIGGER",
+  "simple-proxy": "WORKER_SIMPLE_PROXY",
+  "site-pulse": "WORKER_SITE_PULSE",
+  "specular-edge": "WORKER_SPECULAR_EDGE",
+};
 
 async function cf(env, path) {
   const response = await fetch(`${API}${path}`, {
@@ -31,6 +43,16 @@ async function cf(env, path) {
   return payload.result;
 }
 
+async function optionalCf(env, path, fallback, warnings) {
+  try {
+    return await cf(env, path);
+  } catch (err) {
+    warnings.push(`${path}: ${err.message}`);
+    console.log(`optional Cloudflare discovery failed on ${path}:`, err.message);
+    return fallback;
+  }
+}
+
 /** Route pattern → probe base URL: strip *, ensure scheme, trim /. */
 function routeToBase(pattern) {
   let base = pattern.replace(/\*+$/, "");
@@ -38,37 +60,62 @@ function routeToBase(pattern) {
   return base.replace(/\/+$/, "");
 }
 
+function routeToMetaUrl(pattern) {
+  const base = routeToBase(pattern);
+  const path = new URL(base).pathname;
+  return path.endsWith("/_meta") ? base : `${base}/_meta`;
+}
+
+function routePriority(pattern) {
+  const base = routeToBase(pattern);
+  const url = new URL(base);
+  const isMetaRoute = url.pathname.endsWith("/_meta");
+  const isCatchAll = pattern.endsWith("/*");
+  return (isMetaRoute ? 1000 : 0) + (isCatchAll ? 500 : 0) - url.pathname.length;
+}
+
+function routeCandidate(route) {
+  return { pattern: route.pattern, priority: routePriority(route.pattern) };
+}
+
 /**
  * Enumerate every Worker in the account with its best probe URL.
- * @returns {Promise<Array<{name: string, probe_url: string|null, via: string}>>}
+ * @returns {Promise<{workers: Array<{name: string, probe_url: string|null, via: string, service_binding: string|null}>, warnings: string[]}>}
  */
 export async function discoverWorkers(env) {
-  const [scripts, routes, subdomain] = await Promise.all([
-    cf(env, `/accounts/${env.ACCOUNT_ID}/workers/scripts`),
-    cf(env, `/zones/${env.ZONE_ID}/workers/routes`),
-    cf(env, `/accounts/${env.ACCOUNT_ID}/workers/subdomain`).catch(() => null),
+  const warnings = [];
+  const scripts = await cf(env, `/accounts/${env.ACCOUNT_ID}/workers/scripts`);
+  const [routes, subdomain] = await Promise.all([
+    optionalCf(env, `/zones/${env.ZONE_ID}/workers/routes`, [], warnings),
+    optionalCf(env, `/accounts/${env.ACCOUNT_ID}/workers/subdomain`, null, warnings),
   ]);
 
-  // script → first matching route (routes carry {pattern, script}).
+  // script -> best matching route. Prefer specific public route prefixes
+  // over catch-alls and exact /_meta routes.
   const routeByScript = new Map();
   for (const route of routes) {
-    if (route.script && !routeByScript.has(route.script)) {
-      routeByScript.set(route.script, route.pattern);
+    if (!route.script) continue;
+    const next = routeCandidate(route);
+    const current = routeByScript.get(route.script);
+    if (!current || next.priority < current.priority) {
+      routeByScript.set(route.script, next);
     }
   }
   const devHost = subdomain?.subdomain ? `${subdomain.subdomain}.workers.dev` : null;
 
-  return scripts.map((script) => {
+  const workers = scripts.map((script) => {
     const name = script.id;
-    const pattern = routeByScript.get(name);
+    const pattern = routeByScript.get(name)?.pattern;
+    const service_binding = SERVICE_BINDINGS[name] ?? null;
     if (pattern) {
-      return { name, probe_url: `${routeToBase(pattern)}/_meta`, via: "route" };
+      return { name, probe_url: routeToMetaUrl(pattern), via: "route", service_binding };
     }
     if (devHost) {
       // Unrouted Workers with workers_dev disabled will simply fail the
       // probe and list as undocumented, which is the honest answer.
-      return { name, probe_url: `https://${name}.${devHost}/_meta`, via: "workers.dev" };
+      return { name, probe_url: `https://${name}.${devHost}/_meta`, via: "workers.dev", service_binding };
     }
-    return { name, probe_url: null, via: "none" };
+    return { name, probe_url: null, via: "none", service_binding };
   });
+  return { workers, warnings };
 }
