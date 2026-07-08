@@ -47,10 +47,6 @@ binding = "ATLAS_NOTIFY"
 service = "atlas-notify"
 
 [[services]]
-binding = "WORKER_ATLAS_BACKEND"
-service = "atlas-backend"
-
-[[services]]
 binding = "WORKER_ATLAS_VAULT"
 service = "atlas-vault"
 

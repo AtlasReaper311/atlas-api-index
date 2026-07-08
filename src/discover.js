@@ -15,8 +15,8 @@
  */
 
 const API = "https://api.cloudflare.com/client/v4";
+const EXCLUDED_WORKERS = new Set(["atlas-backend"]);
 const SERVICE_BINDINGS = {
-  "atlas-backend": "WORKER_ATLAS_BACKEND",
   "atlas-notify": "ATLAS_NOTIFY",
   "atlas-vault": "WORKER_ATLAS_VAULT",
   "deploy-watch": "WORKER_DEPLOY_WATCH",
@@ -103,7 +103,7 @@ export async function discoverWorkers(env) {
   }
   const devHost = subdomain?.subdomain ? `${subdomain.subdomain}.workers.dev` : null;
 
-  const workers = scripts.map((script) => {
+  const workers = scripts.filter((script) => !EXCLUDED_WORKERS.has(script.id)).map((script) => {
     const name = script.id;
     const pattern = routeByScript.get(name)?.pattern;
     const service_binding = SERVICE_BINDINGS[name] ?? null;
