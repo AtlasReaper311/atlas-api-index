@@ -73,7 +73,7 @@ Every Worker answers `GET <route-prefix>/_meta` with its self-description:
 }
 ```
 
-[`shared/_meta.js`](shared/_meta.js) is the canonical module: vendored into each Worker's `src/` (one 40-line file beats an npm publish step at £0), imported once, mounted with one line at the top of `fetch()`. Workers that answer are published in full; Workers that do not are listed as discovered but undocumented, which is the honest state and a gentle todo list. [`examples/adding-meta-to-existing-worker.md`](examples/adding-meta-to-existing-worker.md) retrofits atlas-notify, github-pulse, and site-pulse step by step.
+[`shared/_meta.js`](shared/_meta.js) is the canonical module: vendored into each Worker's `src/` (one 40-line file beats an npm publish step at £0), imported once, mounted with one line at the top of `fetch()`. Workers that answer are published in full; Workers that do not are listed as discovered but undocumented, which is the honest state and a gentle retrofit list. [`examples/adding-meta-to-existing-worker.md`](examples/adding-meta-to-existing-worker.md) retrofits atlas-notify, github-pulse, and site-pulse step by step.
 
 ## Design notes
 
