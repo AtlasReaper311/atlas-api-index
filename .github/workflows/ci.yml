@@ -20,6 +20,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Run registry tests
+        run: npm test
+
       - name: Parse-check the Worker (ES modules)
         run: |
           for f in src/*.js shared/*.js; do

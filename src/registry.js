@@ -15,6 +15,30 @@ import { probeMeta } from "./probe.js";
 
 export const KV_KEY = "api-index:registry:v1";
 const KV_TTL_SECONDS = 4500;
+const PUBLIC_EXCLUDED_WORKERS = new Set(["simple-proxy"]);
+
+export function sanitiseRegistry(registry) {
+  if (!registry || typeof registry !== "object") return registry;
+
+  const workers = Array.isArray(registry.workers)
+    ? registry.workers.filter(
+        (worker) =>
+          worker &&
+          typeof worker.name === "string" &&
+          !PUBLIC_EXCLUDED_WORKERS.has(worker.name),
+      )
+    : [];
+
+  return {
+    ...registry,
+    counts: {
+      workers: workers.length,
+      documented: workers.filter((worker) => worker.documented).length,
+      undocumented: workers.filter((worker) => !worker.documented).length,
+    },
+    workers,
+  };
+}
 
 /** Discover, probe, and assemble the registry document. */
 export async function buildRegistry(env) {
@@ -51,12 +75,14 @@ export async function buildRegistry(env) {
 
 /** Last persisted registry, or null. */
 export async function readRegistry(env) {
-  return env.REGISTRY_KV.get(KV_KEY, "json");
+  const registry = await env.REGISTRY_KV.get(KV_KEY, "json");
+  return sanitiseRegistry(registry);
 }
 
 /** Persist a registry snapshot. */
 export async function writeRegistry(env, registry) {
-  await env.REGISTRY_KV.put(KV_KEY, JSON.stringify(registry), {
+  const publicRegistry = sanitiseRegistry(registry);
+  await env.REGISTRY_KV.put(KV_KEY, JSON.stringify(publicRegistry), {
     expirationTtl: KV_TTL_SECONDS,
   });
 }

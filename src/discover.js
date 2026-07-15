@@ -15,7 +15,10 @@
  */
 
 const API = "https://api.cloudflare.com/client/v4";
-const EXCLUDED_WORKERS = new Set(["atlas-backend"]);
+const EXCLUDED_WORKERS = new Set([
+  "atlas-backend",
+  "simple-proxy",
+]);
 const SERVICE_BINDINGS = {
   "atlas-notify": "ATLAS_NOTIFY",
   "atlas-vault": "WORKER_ATLAS_VAULT",
@@ -23,7 +26,6 @@ const SERVICE_BINDINGS = {
   "github-pulse": "WORKER_GITHUB_PULSE",
   "ramone-edge": "WORKER_RAMONE_EDGE",
   "ramone-trigger": "WORKER_RAMONE_TRIGGER",
-  "simple-proxy": "WORKER_SIMPLE_PROXY",
   "site-pulse": "WORKER_SITE_PULSE",
   "specular-edge": "WORKER_SPECULAR_EDGE",
 };

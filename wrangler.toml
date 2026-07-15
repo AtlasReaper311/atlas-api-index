@@ -67,10 +67,6 @@ binding = "WORKER_RAMONE_TRIGGER"
 service = "ramone-trigger"
 
 [[services]]
-binding = "WORKER_SIMPLE_PROXY"
-service = "simple-proxy"
-
-[[services]]
 binding = "WORKER_SITE_PULSE"
 service = "site-pulse"
 
