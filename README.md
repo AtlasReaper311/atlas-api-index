@@ -7,8 +7,7 @@
 ```
 ┌─────────────────────────────────────────────┐
 │  ATLAS SYSTEMS // atlas-api-index           │
-│  the estate documents itself: workers       │
-│  discovered, probed, published hourly       │
+│  fail-closed public Worker registry         │
 └─────────────────────────────────────────────┘
 ```
 
@@ -17,79 +16,111 @@
 ![Convention](https://img.shields.io/badge/convention-%2F__meta-aaa9a0?style=flat-square&labelColor=0a0a0f)
 ![Cost](https://img.shields.io/badge/cost-%C2%A30-aaa9a0?style=flat-square&labelColor=0a0a0f)
 
-The registry at `api.atlas-systems.uk/` used to be a hand-maintained JSON list, accurate exactly as often as it was remembered. Now it maintains itself: an hourly cron enumerates every Worker in the account through the Cloudflare API, derives each one's public URL from its route, probes `GET /_meta`, aggregates the answers to KV, and posts to Discord when a Worker appears that the previous snapshot had never seen. Deploying a documented Worker IS registering it.
+A read-only Cloudflare Worker registry for the intentionally public Atlas Systems runtime. The Worker can observe account-level script and route inventory, but publication is a separate decision: only names in the explicit public allowlist are probed, stored in registry KV, returned from `api.atlas-systems.uk/`, or reported as newly discovered.
 
+```text
+Cloudflare account scripts + routes
+              │
+              ▼
+      public allowlist filter
+              │
+              ▼
+     probe approved /_meta
+              │
+              ▼
+ public registry ──▶ KV ──▶ api.atlas-systems.uk/
+              └──▶ event notification on approved arrival
 ```
-cron :07 ──▶ CF API: scripts + zone routes + workers.dev subdomain
-                │  route pattern minus * plus /_meta = probe URL
-                ▼
-        probe every Worker (4s timeout)
-                │
-                ▼
-        registry ──▶ KV (24 writes/day) ──▶ GET api.atlas-systems.uk/
-                └──▶ atlas-notify on new-worker diff
-```
+
+Unknown or private Workers fail closed. Deploying a new script does not register it publicly; publication requires an explicit source change to the allowlist and the public estate declaration.
 
 ## Prerequisites
 
-- The Worker estate as it stands (atlas-notify live; this binds to it)
-- A **new** Cloudflare API token, read-only: Account, Workers Scripts:Read; Zone, Workers Routes:Read. Runtime and deploy credentials stay separate tokens.
-- `wrangler` authenticated; `npm` for the lint step
+- A Cloudflare API token scoped to account Worker script read and zone Worker route read.
+- `wrangler` authentication for deployment.
+- Node.js and npm for repository validation.
+
+Runtime discovery credentials and deployment credentials remain separate.
 
 ## Setup
-
-Release the root first: whatever currently serves the hand-maintained list at `api.atlas-systems.uk/` keeps working untouched, because this Worker claims only the two exact patterns `/` and `/_meta`, which win over atlas-notify's `/*` by specificity. Nothing to unwire.
 
 ```bash
 npm ci
 npx wrangler kv namespace create REGISTRY_KV
 ```
 
-Paste the returned id into `wrangler.toml`, then:
+Set the namespace identifier in `wrangler.toml`, then configure secrets through interactive prompts:
 
 ```bash
-npx eslint .
 npx wrangler secret put CF_API_TOKEN
 npx wrangler secret put NOTIFY_TOKEN
-npx wrangler deploy
-curl -sS https://api.atlas-systems.uk/
-curl -sS https://api.atlas-systems.uk/_meta
 ```
 
-The first request performs the first build (the cron takes over from :07). Wire the estate deploy caller as usual: copy the 12-line reusable caller from [`github-pulse`](https://github.com/AtlasReaper311/github-pulse), set `CF_WORKERS_DEPLOY_TOKEN`, `CF_ACCOUNT_ID`, `DISCORD_CICD_WEBHOOK`.
+Validate before deployment:
+
+```bash
+npm run lint
+npm test
+npx wrangler deploy --dry-run --outdir dist
+```
+
+Production deployment is a separate owner-approved action.
+
+## Public Worker allowlist
+
+`src/public-workers.js` is the publication gate. A Worker name must be explicitly present before discovery can construct a public record for it.
+
+The filter is applied before route resolution and metadata probing. This prevents an undeclared account Worker from leaking through:
+
+- registry names
+- probe URLs
+- metadata documents
+- KV snapshots
+- discovery notifications
+- downstream API and Lab consumers
+
+`atlas-api-public` applies a second independent filter against the public estate manifest, so one boundary regression does not automatically become a public API disclosure.
 
 ## The `/_meta` convention
 
-Every Worker answers `GET <route-prefix>/_meta` with its self-description:
+Approved public Workers can answer `GET <route-prefix>/_meta` with a bounded self-description:
 
 ```json
 {
   "name": "specular-edge",
   "description": "Live hardware telemetry from SPECULAR-CORE, cached at the edge",
   "version": "1.0.0",
-  "endpoints": [{ "method": "GET", "path": "/specular", "description": "…" }],
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/specular",
+      "description": "Public telemetry projection"
+    }
+  ],
   "status": "live",
   "source": "https://github.com/AtlasReaper311/specular-telemetry"
 }
 ```
 
-[`shared/_meta.js`](shared/_meta.js) is the canonical module: vendored into each Worker's `src/` (one 40-line file beats an npm publish step at £0), imported once, mounted with one line at the top of `fetch()`. Workers that answer are published in full; Workers that do not are listed as discovered but undocumented, which is the honest state and a gentle retrofit list. [`examples/adding-meta-to-existing-worker.md`](examples/adding-meta-to-existing-worker.md) retrofits atlas-notify, github-pulse, and site-pulse step by step.
+The metadata contract is a documentation mechanism for approved public Workers, not an account-wide requirement. A private Worker can operate normally without adopting or exposing this public contract.
 
 ## Design notes
 
-**Self-healing has two clocks.** The cron rebuilds hourly and writes KV with a 75-minute TTL, so one missed cron degrades nothing and a dead cron becomes visible within the hour. A cold read (KV expired, or first ever) rebuilds live, serves, and re-persists: one visitor pays one slow request, the endpoint never 404s over a scheduling hiccup.
+**Observation is not publication.** The Cloudflare API answers what exists in the account. The allowlist answers what Atlas Systems intentionally publishes. Those are separate trust decisions.
 
-**Discovery is read-only by construction.** The runtime token can list scripts and routes; it cannot deploy, delete, or edit. Enumeration is the whole capability, and the blast radius of the secret leaking is that someone learns what `GET api.atlas-systems.uk/` already tells them.
+**Unknown fails closed.** A new Worker remains invisible until explicitly approved. This prevents account growth from silently expanding the public architecture surface.
 
-**New means new against the last snapshot.** The notify fires on the set difference of names, so the first-ever pass (everything is new) announces nothing, and a Worker flapping in and out of documentation does not spam: only genuine arrivals do.
+**Discovery remains read-only.** The runtime token lists scripts and routes but cannot deploy, edit, or delete them.
 
-**Probing failure is a state, not an error.** Timed out, off-contract shape, no route and no workers.dev host: each gets recorded with a note in the registry itself, so the registry doubles as the estate's `/_meta` adoption dashboard.
+**Registry freshness has two paths.** The cron refreshes the snapshot on schedule; a cold read can rebuild it when KV has expired. Both paths apply the same public allowlist.
+
+**Probe failure is honest.** An approved public Worker that lacks valid metadata can appear as undocumented. A private or unknown Worker never appears as documentation debt.
 
 ## How it fits into Atlas Systems
 
-This is the estate turning a convention into infrastructure. [`specular-edge`](https://github.com/AtlasReaper311/specular-telemetry) and [`ramone-trigger`](https://github.com/AtlasReaper311/ramone-voice-trigger) shipped `/_meta` from day one and appear without any registration; the retrofit guide brings [`atlas-notify`](https://github.com/AtlasReaper311/atlas-notify), [`github-pulse`](https://github.com/AtlasReaper311/github-pulse), and [`site-pulse`](https://github.com/AtlasReaper311/site-pulse) into the fold; discovery events flow through atlas-notify like everything else. [`atlas-corpus`](https://github.com/AtlasReaper311/atlas-corpus) ingests the READMEs this registry points at, which makes the api root and the search box two views of the same self-describing estate.
+`atlas-api-index` supplies live status and metadata for the public Worker subset consumed by [`atlas-api-public`](https://github.com/AtlasReaper311/atlas-api-public) and the public Lab. The authoritative publication boundary is explicit rather than inferred from Cloudflare account membership.
 
-A system that can be asked what it is stays documented for the same reason it stays deployed: because a machine does it, on a schedule, and tells you when the answer changes.
+The transferable pattern is to separate discovery from disclosure: inventory systems can observe broadly while public projections remain narrowly allowlisted.
 
 ---
 
