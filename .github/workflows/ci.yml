@@ -1,8 +1,4 @@
-# CI gate for atlas-api-index: parse-check src/ and shared/ as ES
-# modules, report to #ci-cd via direct curl.
-# Deploys go through the reusable deploy-worker caller (see README).
-
-name: ci
+name: CI
 
 on:
   push:
@@ -15,28 +11,27 @@ permissions:
 
 concurrency:
   group: ${{ github.repository }}-ci-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0, Node 24
-
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0, Node 24
         with:
           node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm test
+      - name: Wrangler dry run
+        run: npx wrangler deploy --dry-run --outdir dist
 
-      - name: Parse-check the Worker (ES modules)
-        run: |
-          for f in src/*.js shared/*.js; do
-            echo "checking $f"
-            node --input-type=module --check < "$f"
-          done
-
-  # CI result reported through the reusable atlas-notify workflow:
-  # routes to #ci-cd via signal_class, failures mirror to #alerts.
   notify:
     needs: build
     if: always() && github.ref == 'refs/heads/main' && github.event_name == 'push'

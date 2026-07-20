@@ -1,16 +1,14 @@
 /**
  * atlas-api-index
  *
- * The self-healing registry of every Worker in the account. Hourly
- * cron: enumerate via the Cloudflare API, probe each Worker's /_meta,
- * aggregate to KV, and fire atlas-notify when a Worker appears that
- * the previous snapshot had never seen. Serves the registry at
- * api.atlas-systems.uk/ and answers its own /_meta, because a registry
- * that does not follow its own convention is a joke at its own
- * expense.
+ * The self-healing registry of approved public Atlas Systems Workers. Hourly
+ * cron: enumerate the Cloudflare account, discard every script outside the
+ * explicit public allowlist, probe each remaining Worker's /_meta, aggregate
+ * to KV, and notify when a newly approved public Worker appears.
  *
- * Closes the documented gap: the hand-maintained JSON list at the api
- * root, which was accurate exactly as often as it was remembered.
+ * Account inventory and public documentation are deliberately separate. A
+ * private or unknown Worker may exist and operate normally without ever being
+ * written to this registry, exposed through the API, or rendered on the site.
  */
 
 import { handleMeta } from "../shared/_meta.js";
@@ -18,7 +16,6 @@ import { META } from "./meta.js";
 import { notify } from "./notify.js";
 import { buildRegistry, readRegistry, writeRegistry } from "./registry.js";
 
-/** Rebuild, diff against the previous snapshot, persist, notify news. */
 async function refreshRegistry(env, reason) {
   const previous = await readRegistry(env);
   const registry = await buildRegistry(env);
@@ -26,12 +23,10 @@ async function refreshRegistry(env, reason) {
 
   const known = new Set((previous?.workers ?? []).map((worker) => worker.name));
   const fresh = registry.workers.filter((worker) => !known.has(worker.name));
-  // First-ever pass discovers everything; announcing the entire estate
-  // as "new" would be noise, so news only exists once a baseline does.
   if (previous && fresh.length > 0) {
     await notify(env, {
       level: "info",
-      title: `api-index: ${fresh.length} new worker${fresh.length === 1 ? "" : "s"} discovered`,
+      title: `api-index: ${fresh.length} new public worker${fresh.length === 1 ? "" : "s"} discovered`,
       message: fresh
         .map((worker) => `${worker.name} (${worker.documented ? "documented" : "no /_meta yet"})`)
         .join(", "),
@@ -44,7 +39,7 @@ async function refreshRegistry(env, reason) {
     });
   }
   console.log(
-    `registry rebuilt (${reason}): ${registry.counts.workers} workers, ` +
+    `public registry rebuilt (${reason}): ${registry.counts.workers} workers, ` +
       `${registry.counts.documented} documented, ${fresh.length} new`,
   );
   return registry;
@@ -56,7 +51,6 @@ function json(body, { status = 200, cacheSeconds = 300 } = {}) {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "cache-control": `public, max-age=60, s-maxage=${cacheSeconds}`,
-      // The registry is public documentation; let anything read it.
       "access-control-allow-origin": "*",
     },
   });
@@ -78,8 +72,6 @@ export default {
 
     let registry = await readRegistry(env);
     if (!registry) {
-      // KV expired (missed crons) or first request ever: heal live.
-      // The visitor pays one slow request; the next hour is cached.
       try {
         registry = await refreshRegistry(env, "on-demand");
       } catch (err) {
