@@ -12,9 +12,46 @@
 import { discoverWorkers } from "./discover.js";
 import { META } from "./meta.js";
 import { probeMeta } from "./probe.js";
+import { isPublicWorker } from "./public-workers.js";
 
 export const KV_KEY = "api-index:registry:v1";
 const KV_TTL_SECONDS = 4500;
+
+/**
+ * Re-apply the public Worker boundary to persisted registry data.
+ *
+ * Discovery already fails closed before a registry is built. This second gate
+ * protects reads from stale or manually seeded KV snapshots after an allowlist
+ * change, and protects writes if a caller ever passes an unsanitised snapshot.
+ */
+export function sanitiseRegistry(registry) {
+  if (
+    !registry ||
+    typeof registry !== "object" ||
+    Array.isArray(registry) ||
+    !Array.isArray(registry.workers)
+  ) {
+    return null;
+  }
+
+  const workers = registry.workers.filter(
+    (worker) =>
+      worker &&
+      typeof worker === "object" &&
+      typeof worker.name === "string" &&
+      isPublicWorker(worker.name),
+  );
+
+  return {
+    ...registry,
+    counts: {
+      workers: workers.length,
+      documented: workers.filter((worker) => worker.documented === true).length,
+      undocumented: workers.filter((worker) => worker.documented !== true).length,
+    },
+    workers,
+  };
+}
 
 /** Discover, probe, and assemble the registry document. */
 export async function buildRegistry(env) {
@@ -49,14 +86,20 @@ export async function buildRegistry(env) {
   };
 }
 
-/** Last persisted registry, or null. */
+/** Last persisted public registry, or null when missing or malformed. */
 export async function readRegistry(env) {
-  return env.REGISTRY_KV.get(KV_KEY, "json");
+  const registry = await env.REGISTRY_KV.get(KV_KEY, "json");
+  return sanitiseRegistry(registry);
 }
 
-/** Persist a registry snapshot. */
+/** Persist a public registry snapshot. */
 export async function writeRegistry(env, registry) {
-  await env.REGISTRY_KV.put(KV_KEY, JSON.stringify(registry), {
+  const publicRegistry = sanitiseRegistry(registry);
+  if (!publicRegistry) {
+    throw new TypeError("registry snapshot is malformed");
+  }
+
+  await env.REGISTRY_KV.put(KV_KEY, JSON.stringify(publicRegistry), {
     expirationTtl: KV_TTL_SECONDS,
   });
 }
