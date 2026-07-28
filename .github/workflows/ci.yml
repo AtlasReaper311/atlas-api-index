@@ -16,9 +16,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0, Node 24
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0, Node 24
         with:
           node-version: "22"
@@ -29,10 +29,25 @@ jobs:
         run: npm run lint
       - name: Test
         run: npm test
+      - name: Validate registry evidence generator
+        run: node --check scripts/capture-registry-contract-evidence.mjs
+      - name: Capture JSON-only registry contract evidence
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          REGISTRY_EVIDENCE_OUTPUT_DIR: ${{ runner.temp }}/registry-contract-evidence
+        run: node scripts/capture-registry-contract-evidence.mjs
+      - name: Upload exact-head registry evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
+        with:
+          name: registry-contract-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/registry-contract-evidence/registry-contract-evidence.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Wrangler dry run
         run: npx wrangler deploy --dry-run --outdir dist
       - name: Check out pinned Atlas Infra Worker contract validator
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0, Node 24
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           repository: AtlasReaper311/atlas-infra
           ref: f971172dc258c93dffa53b8b7a3532c5be55883d
